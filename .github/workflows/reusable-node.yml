@@ -3,7 +3,7 @@ name: Reusable Node CICD
 on:
   workflow_call:
     inputs:
-      environment:
+      env:
         required: true
         type: string
       run_sonar:
@@ -16,8 +16,10 @@ on:
 
 jobs:
   build:
-    runs-on: self-hosted
-    environment: ${{ inputs.environment }}
+    runs-on: 
+      - self-hosted
+      - ${{ inputs.env == 'production' && 'prod' || inputs.env }}
+    environment: ${{ inputs.env }}
 
     steps:
       - name: Checkout
@@ -51,9 +53,11 @@ jobs:
         run: npm run build
 
   deploy:
-    if: inputs.environment == 'production'
+    if: inputs.env == 'production'
     needs: build
-    runs-on: self-hosted
+    runs-on:
+      - self-hosted
+      - prod
     environment: production
 
     steps:
