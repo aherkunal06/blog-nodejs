@@ -1,58 +1,76 @@
-name: Reusable Node CICD
+name: Reusable Node.js Build & Deploy
 
 on:
   workflow_call:
     inputs:
-      environment:
+      runner_labels:
+        description: 'JSON array of runner labels'
         required: true
         type: string
-      run_sonar:
+      environment:
+        description: 'Deployment environment name'
+        required: true
+        type: string
+      should_deploy:
+        description: 'Whether to deploy to cPanel'
         required: false
         type: boolean
         default: false
-      deploy_path:
-        required: false
-        type: string
 
 jobs:
   build:
-    runs-on: [self-hosted, dev]
+    runs-on: ${{ fromJson(inputs.runner_labels) }}
     environment: ${{ inputs.environment }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 18
+          cache: 'npm'
 
-      - run: npm install
+      - name: Install dependencies
+        run: npm ci
 
-      - if: inputs.run_sonar == true
-        run: npm test
-
-      - if: inputs.run_sonar == true
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        run: |
-          sonar-scanner \
-            -Dsonar.projectKey=${{ github.repository }} \
-            -Dsonar.sources=. \
-            -Dsonar.host.url=$SONAR_HOST_URL \
-            -Dsonar.login=$SONAR_TOKEN
-
-      - run: npm run build
+      - name: Build application
+        run: npm run build
 
   deploy:
-    if: inputs.environment == 'production'
+    if: ${{ inputs.should_deploy == true }}
     needs: build
-    runs-on: [self-hosted, prod]
-    environment: production
+    runs-on: ${{ fromJson(inputs.runner_labels) }}
+    environment: ${{ inputs.environment }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - run: |
-          rsync -avz --delete ./ \
-          ${{ secrets.CPANEL_USER }}@${{ secrets.CPANEL_HOST }}:${{ inputs.deploy_path }}
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build for production
+        run: npm run build
+
+      - name: Deploy to cPanel via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./
+          server-dir: ${{ secrets.DEPLOY_PATH }}/
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            .env*
+            README.md
